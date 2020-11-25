@@ -10,6 +10,7 @@ import numpy as np
 import random
 import subprocess # for running Frame3DD
 from mpi4py import MPI
+import scipy.optimize
 
 class Frame3DDOutput:
     ''' Responsible for parsing output from Frame3DD. This
@@ -120,8 +121,8 @@ class Frame3DDOutput:
             node1 = member[0] - 1 # convert to one-based indexing
             node2 = member[1] - 1
             member_length = 0
-            for i in range(3):
-                member_length += (self.node_data[node1][i]-self.node_data[node2][i])**2
+            for j in range(3):
+                member_length += (self.node_data[node1][j]-self.node_data[node2][j])**2
             member_length = member_length**0.5
             sum_fl += member_length * abs(self.frame_element_reactions[i][1])
         return sum_fl
@@ -306,8 +307,8 @@ class OptimizationProblem:
             member_string += '%i %i %i 1000.0 1.0 1.0 1.0 1.0 2 %f %f 0 %f\n'%(member_id+1, self.connectivities[member_id, 0],
                     self.connectivities[member_id, 1], self.material.E, self.material.G, self.material.density)
         with open(inputname, 'w') as fh:
-            fh.write(self.template.render(members=member_string, geom=0, nmodes=0, **dict(zip(self.variable_names, variable_values))))
-        result = subprocess.run(['frame3dd', inputname, outputname])
+            fh.write(self.template.render(members=member_string, nmodes=0, **dict(zip(self.variable_names, variable_values))))
+        result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname, '-q'])
 
         # Note: exit code 182 is given for large strains. For the linear elastic analysis, I just set beam thicknesses to an arb. number,
         # so this is expected, and should not cause any difference in the solution.
@@ -316,11 +317,20 @@ class OptimizationProblem:
 
         # Read in results
         elastic_result = Frame3DDOutput(outputname)
+
+        # Need to clean up the result, since Frame3DD just writes to make output files longer
+        removal_result = subprocess.run(['rm', outputname])
+        if result.returncode:
+            raise Exception("Frame3DD screwed up in some undecipherable way...")
+
         return elastic_result.calculate_f_times_l()
 
-# opt = OptimizationProblem('exA.templ', 'connectivity1', ['v%i'%(i+1) for i in range(10)],
-#     [(-10, 10) for i in range(10)], consider_local_buckling=False)
-# print(opt.evaluate_objective([0, 0, 0, 0, 0, -120, -120, -120, -120, -120]))
+    def optimize_scipy(self):
+        '''
+        Carries out differential evolution using a Scipy backend.
+        '''
+        result = scipy.optimize.differential_evolution(self.evaluate_objective, self.constrained_boundaries, disp=True)
+        print(result)
 
 if __name__ == '__main__':
     import argparse
@@ -333,24 +343,25 @@ if __name__ == '__main__':
     cmd_parser.add_argument('frame3dd_template', help="name of the Frame3DD input file template, formatted as per this program's manual")
     cmd_parser.add_argument('connectivity_file', help="a file containing a member topology definition. One line per member, with two numbers being the 1-based node indices.")
     cmd_parser.add_argument('variable_file', help="this file contains rows of variables to optimize over in the Frame3DD template file.")
-    cmd_parser.add_argument('--local_buckling', type=bool, default=True, help="whether to consider local buckling when sizing frame members", metavar='')
-    cmd_parser.add_argument('--global_buckling', type=bool, default=False, help="whether to constrain the optimization to avoid global buckling", metavar='')
+    cmd_parser.add_argument('--no_local_buckling', dest='local_buckling', action='store_false', help="turn off consideration of local buckling when sizing frame members")
+    cmd_parser.add_argument('--no_global_buckling', dest='global_buckling',  action='store_false', help="turn off constraining the optimization to avoid global buckling")
     cmd_parser.add_argument('--safety_factor', type=float, default=5, help="safety factor to use when sizing members", metavar='')
     cmd_parser.add_argument('--mutation', type=float, default=0.5, help="mutation factor for differential evolution", metavar='')
     cmd_parser.add_argument('--recombination', type=float, default=0.7, help="recombination factor for differential evolution", metavar='')
     cmd_parser.add_argument('--material', default='A36Steel', help="material to use for frame members. available types:\n %s"%('    \n'.join(material_map.keys())), metavar='')
     cmd_parser.add_argument('--population_per_rank', type=int, default=15, help="differential evolution population size per MPI rank", metavar='')
-    cmd_parser.parse_args()
-    print(cmd_parser.frame3dd_template)
-    print(cmd_parser.connectivity_file)
-    opt = OptimizationProblem(cmd_parser.frame3dd_template,
-            cmd_parser.connectivity_file,
-            cmd_parser.variable_file,
-            consider_local_buckling=cmd_parser.local_buckling,
-            consider_global_buckling=cmd_parser.global_buckling,
-            safety_factor=cmd_parser.safety_factor,
-            mutation=cmd_parser.mutation,
-            recombination=cmd_parser.recombination,
-            material=material_map[cmd_parser.material],
-            population_per_rank=cmd_parser.population_per_rank)
+    cmd_parser.set_defaults(local_buckling=True, global_buckling=True)
+    args = cmd_parser.parse_args()
 
+    opt = OptimizationProblem(args.frame3dd_template,
+            args.connectivity_file,
+            args.variable_file,
+            consider_local_buckling=args.local_buckling,
+            consider_global_buckling=args.global_buckling,
+            safety_factor=args.safety_factor,
+            mutation=args.mutation,
+            recombination=args.recombination,
+            material=material_map[args.material],
+            population_per_rank=args.population_per_rank)
+
+    opt.optimize_scipy()
