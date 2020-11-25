@@ -1,0 +1,58 @@
+\documentclass{report}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{commath}
+\author{Gavin Ridley}
+\date{\today}
+\title{4.450 Project Report\\ A Realistic, Open-source Frame Optimization Tool: Frame3DD-Opt}
+
+\begin{document}
+
+\section{Abstract}
+While a multitude of open-source truss and frame analysis tools can be found online,
+the majority of these focus on topology optimization. I designed a new truss optimization
+program capable of performing parallel differential evolution on the largest of supercomputers.
+The code uses the validated Frame3DD frame analysis to solve the solid mechanics physics.
+A new simple technique for treating a global buckling constraint has been developed, and has
+been incorporated into the new code. Results are presented for a handful of problems, and
+scaling analysis was performed up to XXX cores on the Sawtooth supercomputer based at
+Idaho National Laboratory.
+
+\section{Introduction}
+The shape of optimal truss structures under academic assumptions is known for a given
+topology in both 2D \cite{} and 3D \cite{}. These results, though, rely on a few assumptions
+which tend not to hold in real applications. To name a few, these results neglect global
+buckling, and penalize tensile stresses in the same way compressive stresses are penalized.
+While these optimal structures indeed solve the minimum compliance problem under a given
+topology, they do not necessarily solve the minimum mass problem once buckling constraints
+are taken into account--including both local and global buckling.
+
+This work seeks to fill this gap and explore the deviations from theoretically optimal geometry
+of Michell trusses using a realistic model of truss physics--including both local and global
+buckling. This deviation from idealized optimal solutions is easily shown to depend on both
+member geometries and mechanical properties. On top of this, these theoretically optimal
+solutions tend to assume pinned connections which do not resist moments, but real structures
+tend to use connections which do resist moments such as welds and gusset plates.
+
+So, to expound the physical model of trusses I seek to solve, 
+
+\subsection{Literature Review}
+Frames or trusses have a tendency to fail in buckling well before ideal
+tensile or compressive yield limits are reached--analogous to how a beam
+under compression tends to fail in buckling well before it fails due to
+compressive yielding. This can easily be shown to be true using Euler's
+buckling formula, available from any mechanics of materials text e.g. \cite{gereMechanicsMaterials1996}, and
+comparing this buckling stress to that where yielding occurs. For most
+geometries relevant to structural members, buckling happens well before
+yielding.
+
+A majority of modern truss and frame optimization studies consider the topology
+optimization problem introduced by \cite{}, which uses the "gound structure" concept.
+At its core, this method simply optimizes a highly connected trusses' member thicknesses
+in order to find an optimal truss layout.
+
+\cite{zhaoa} first incisively pointed out the deficiencies of considering only
+local buckling in truss optimization problems. This paper points out a few simple
+examples where consideration of only local truss buckling 
+
+\end{document}
