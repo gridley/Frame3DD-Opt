@@ -253,7 +253,6 @@ class OptimizationProblem:
             raise Exception('connectivities should be two entries per line')
 
         # Load in the variables to optimize on
-        self.n_variables = 0
         self.variable_names = []
         self.constrained_boundaries= []
         with open(variable_file, 'r') as variables_fh:
@@ -264,6 +263,7 @@ class OptimizationProblem:
                 self.variable_names.append(split_line[0])
                 assert float(split_line[1]) < float(split_line[2])
                 self.constrained_boundaries.append((float(split_line[1]), float(split_line[2])))
+        self.n_variables = len(self.variable_names)
 
         # Save various settings
         self.safety_factor = safety_factor
@@ -332,6 +332,42 @@ class OptimizationProblem:
         result = scipy.optimize.differential_evolution(self.evaluate_objective, self.constrained_boundaries, disp=True)
         print(result)
 
+    def generate_feasible_solution(self):
+
+        # First off, create an initial guess array of feasible solutions
+        for row_i in range(self.population_per_rank):
+
+            # Sample a feasible solution. There is a max number of attempts
+            state_is_feasible = False
+            max_attempts = 1000 # max number of attempts to sample a feasible solution
+            feasibility_attempt = 0 # iteration counter
+            while not state_is_feasible:
+                for j_var in range(self.n_variables):
+                    self.current_population[self.rank * self.population_per_rank + row_i, j_var] = random.uniform(self.constrained_boundaries[j_var][0], self.constrained_boundaries[j_var][1])
+                state_is_feasible = True # TODO replace with global buckling check
+                feasibility_attempt += 1
+                if feasibility_attempt > max_attempts:
+                    raise Exception("Unable to sample a feasible solution. Either change problem specification or increase max_attempts in frame3dd_opt.py")
+
+        self.synchronize_population_across_ranks()
+        self.last_iteration_population = self.current_population
+
+    def optimize_mine(self):
+        '''
+        Carries out differential evolution using my backend
+        '''
+        self.generate_feasible_solution()
+
+    def synchronize_population_across_ranks(self):
+        '''
+        Synchronizes the modified populations across all ranks
+        '''
+        MPI.COMM_WORLD.Barrier()
+        for rank in range(self.mpi_size):
+            indx_start = rank * self.population_per_rank
+            MPI.COMM_WORLD.Bcast(self.current_population[indx_start:indx_start+self.population_per_rank], root=rank)
+            MPI.COMM_WORLD.Barrier()
+
 if __name__ == '__main__':
     import argparse
     # TODO add check that frame3dd is indeed present on the system.
@@ -364,4 +400,5 @@ if __name__ == '__main__':
             material=material_map[args.material],
             population_per_rank=args.population_per_rank)
 
-    opt.optimize_scipy()
+    # opt.optimize_scipy()
+    opt.optimize_mine()
