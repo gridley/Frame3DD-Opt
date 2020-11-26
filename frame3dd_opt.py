@@ -268,8 +268,9 @@ class OptimizationProblem:
         # Save various settings
         self.safety_factor = safety_factor
         self.population_per_rank = population_per_rank
+        self.population_size = self.population_per_rank * self.mpi_size
         self.constrain_global_buckling = consider_global_buckling
-        self.maxiter = 1000
+        self.maxiter = maxiter
         self.mutation = 0.5
         self.recombination = 0.7
         self.material = material
@@ -280,8 +281,11 @@ class OptimizationProblem:
 
         # Allocate space for both previous iteration active populations
         # and last iteration active populations.
-        self.last_iteration_population = np.zeros((self.mpi_size * population_per_rank, self.n_variables))
+        self.last_iteration_population = np.zeros((self.population_size, self.n_variables))
         self.current_population = np.zeros_like(self.last_iteration_population)
+
+        # Array of cost functions for the current population (just start at large value in case i mess up)
+        self.cost_function = np.ones(self.population_size) * 1e100
 
         # Check that either the author or user of this code isn't insane
         if consider_local_buckling:
@@ -345,6 +349,7 @@ class OptimizationProblem:
                 for j_var in range(self.n_variables):
                     self.current_population[self.rank * self.population_per_rank + row_i, j_var] = random.uniform(self.constrained_boundaries[j_var][0], self.constrained_boundaries[j_var][1])
                 state_is_feasible = True # TODO replace with global buckling check
+                self.cost_function[self.rank * self.population_per_rank + row_i] = self.evaluate_objective(self.current_population[self.rank * self.population_per_rank + row_i])
                 feasibility_attempt += 1
                 if feasibility_attempt > max_attempts:
                     raise Exception("Unable to sample a feasible solution. Either change problem specification or increase max_attempts in frame3dd_opt.py")
@@ -352,11 +357,61 @@ class OptimizationProblem:
         self.synchronize_population_across_ranks()
         self.last_iteration_population = self.current_population
 
+
+    def exclusive_sample(self, *args):
+        '''
+        Samples an integer in [0, population_size) which is guaranteed not equal to any
+        of the provided arguments.
+        '''
+        while True:
+            propose = random.randrange(0, self.population_size)
+            if all([propose != a for a in args]):
+                return propose
+
     def optimize_mine(self):
         '''
         Carries out differential evolution using my backend
         '''
         self.generate_feasible_solution()
+
+        evolution_iteration = 0
+
+        trial = np.zeros(self.n_variables) # work space for generating trial mutation
+
+        while evolution_iteration < self.maxiter:
+
+            # Parallel loop over population (only loop over chunk of population owned by this MPI rank)
+            for p in range(self.rank * self.population_per_rank, (self.rank+1) * self.population_per_rank):
+
+                # Get partners
+                a = self.exclusive_sample(p)
+                b = self.exclusive_sample(p, a)
+                c = self.exclusive_sample(p, a, b)
+
+                # Mutate'n'mate
+                j = random.randrange(0, self.n_variables)
+                for k in range(self.n_variables):
+                    if random.random() < self.recombination or k == self.n_variables-1:
+                        trial[j] = self.last_iteration_population[c][j] + self.mutation * (
+                                self.last_iteration_population[a][j] - self.last_iteration_population[b][j])
+                    else:
+                        trial[j] = self.last_iteration_population[p][j]
+                    j = (j+1)%self.n_variables
+
+                score = self.evaluate_objective(trial)
+                if score <= self.cost_function[p]:
+                    self.current_population[p, :] = trial
+                    self.cost_function[p] = score
+                else:
+                    self.current_population[p, :] = self.last_iteration_population[p, :]
+
+            self.synchronize_population_across_ranks()
+            self.last_iteration_population = self.current_population
+
+            if (self.rank == 0):
+                print("f(x) = %f" % np.min(self.cost_function))
+
+            evolution_iteration += 1
 
     def synchronize_population_across_ranks(self):
         '''
@@ -366,7 +421,8 @@ class OptimizationProblem:
         for rank in range(self.mpi_size):
             indx_start = rank * self.population_per_rank
             MPI.COMM_WORLD.Bcast(self.current_population[indx_start:indx_start+self.population_per_rank], root=rank)
-            MPI.COMM_WORLD.Barrier()
+            MPI.COMM_WORLD.Bcast(self.cost_function[indx_start:indx_start+self.population_per_rank], root=rank)
+        MPI.COMM_WORLD.Barrier()
 
 if __name__ == '__main__':
     import argparse
