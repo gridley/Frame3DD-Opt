@@ -326,7 +326,7 @@ class OptimizationProblem:
 
         # Need to clean up the result, since Frame3DD just writes to make output files longer
         removal_result = subprocess.run(['rm', outputname])
-        if result.returncode:
+        if removal_result.returncode:
             print("Frame3DD screwed up in some undecipherable way on proc %i..."%self.rank)
             MPI.COMM_WORLD.Abort()
 
