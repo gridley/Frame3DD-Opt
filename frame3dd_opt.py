@@ -266,6 +266,8 @@ class OptimizationProblem:
         self.n_variables = len(self.variable_names)
 
         # Save various settings
+        self.rank = MPI.COMM_WORLD.Get_rank()
+        self.mpi_size = MPI.COMM_WORLD.Get_size()
         self.safety_factor = safety_factor
         self.population_per_rank = population_per_rank
         self.population_size = self.population_per_rank * self.mpi_size
@@ -274,10 +276,6 @@ class OptimizationProblem:
         self.mutation = 0.5
         self.recombination = 0.7
         self.material = material
-
-        # Save a few important things
-        self.rank = MPI.COMM_WORLD.Get_rank()
-        self.mpi_size = MPI.COMM_WORLD.Get_size()
 
         # Allocate space for both previous iteration active populations
         # and last iteration active populations.
@@ -312,12 +310,16 @@ class OptimizationProblem:
                     self.connectivities[member_id, 1], self.material.E, self.material.G, self.material.density)
         with open(inputname, 'w') as fh:
             fh.write(self.template.render(members=member_string, nmodes=0, **dict(zip(self.variable_names, variable_values))))
-        result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname, '-q'])
+        #for i in range(self.mpi_size):
+        #    if i == self.rank:
+        result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname])
+        #    MPI.COMM_WORLD.Barrier();
 
         # Note: exit code 182 is given for large strains. For the linear elastic analysis, I just set beam thicknesses to an arb. number,
         # so this is expected, and should not cause any difference in the solution.
         if result.returncode and result.returncode!=182:
-            raise Exception("Frame3DD exited with error code %i"%result.returncode)
+            print("Frame3DD exited with error code %i on proc %i"%(result.returncode, self.rank))
+            MPI.COMM_WORLD.Abort()
 
         # Read in results
         elastic_result = Frame3DDOutput(outputname)
@@ -325,7 +327,8 @@ class OptimizationProblem:
         # Need to clean up the result, since Frame3DD just writes to make output files longer
         removal_result = subprocess.run(['rm', outputname])
         if result.returncode:
-            raise Exception("Frame3DD screwed up in some undecipherable way...")
+            print("Frame3DD screwed up in some undecipherable way on proc %i..."%self.rank)
+            MPI.COMM_WORLD.Abort()
 
         return elastic_result.calculate_f_times_l()
 
@@ -409,7 +412,7 @@ class OptimizationProblem:
             self.last_iteration_population = self.current_population
 
             if (self.rank == 0):
-                print("f(x) = %f" % np.min(self.cost_function))
+                print("Iteration %i: f(x) = %f" % (evolution_iteration, np.min(self.cost_function)))
 
             evolution_iteration += 1
 
