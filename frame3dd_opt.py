@@ -298,6 +298,9 @@ class OptimizationProblem:
         if not os.path.exists('out%i'%self.rank):
             os.mkdir('out%i'%self.rank)
 
+        # Get path for each proc to use
+        self.path = os.getenv('PATH')
+
     def evaluate_objective(self, variable_values):
         '''
         This proceeds in two steps. Firstly, a linear elasticity calculation is done in order to calculate the
@@ -316,8 +319,7 @@ class OptimizationProblem:
         with open(inputname, 'w') as fh:
             fh.write(self.template.render(members=member_string, nmodes=0, **dict(zip(self.variable_names, variable_values))))
 
-        # TODO look this up from the path, and then pass it in here
-        the_env = {'PATH':'/home/gavin/Code/Frame3DD/linux', 'FRAME3DD_OUTDIR':'out%i'%self.rank}
+        the_env = {'PATH':self.path, 'FRAME3DD_OUTDIR':'out%i'%self.rank}
         result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname, '-q'], env=the_env)
 
         # Note: exit code 182 is given for large strains. For the linear elastic analysis, I just set beam thicknesses to an arb. number,
