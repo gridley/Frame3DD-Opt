@@ -9,6 +9,7 @@ from jinja2 import Template
 import numpy as np
 import random
 import subprocess # for running Frame3DD
+import os # required for making temporary output directories for each MPI proc to use
 from mpi4py import MPI
 import scipy.optimize
 
@@ -293,6 +294,10 @@ class OptimizationProblem:
         if not consider_local_buckling and consider_global_buckling:
             raise Exception('Cannot consider global buckling without local buckling.')
 
+        # Ensure that temporary output directories are available for each proc to use
+        if not os.path.exists('out%i'%self.rank):
+            os.mkdir('out%i'%self.rank)
+
     def evaluate_objective(self, variable_values):
         '''
         This proceeds in two steps. Firstly, a linear elasticity calculation is done in order to calculate the
@@ -310,10 +315,10 @@ class OptimizationProblem:
                     self.connectivities[member_id, 1], self.material.E, self.material.G, self.material.density)
         with open(inputname, 'w') as fh:
             fh.write(self.template.render(members=member_string, nmodes=0, **dict(zip(self.variable_names, variable_values))))
-        #for i in range(self.mpi_size):
-        #    if i == self.rank:
-        result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname])
-        #    MPI.COMM_WORLD.Barrier();
+
+        # TODO look this up from the path, and then pass it in here
+        the_env = {'PATH':'/home/gavin/Code/Frame3DD/linux', 'FRAME3DD_OUTDIR':'out%i'%self.rank}
+        result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname, '-q'], env=the_env)
 
         # Note: exit code 182 is given for large strains. For the linear elastic analysis, I just set beam thicknesses to an arb. number,
         # so this is expected, and should not cause any difference in the solution.
@@ -445,6 +450,7 @@ if __name__ == '__main__':
     cmd_parser.add_argument('--recombination', type=float, default=0.7, help="recombination factor for differential evolution", metavar='')
     cmd_parser.add_argument('--material', default='A36Steel', help="material to use for frame members. available types:\n %s"%('    \n'.join(material_map.keys())), metavar='')
     cmd_parser.add_argument('--population_per_rank', type=int, default=15, help="differential evolution population size per MPI rank", metavar='')
+    cmd_parser.add_argument('--max_iter', type=int, default=1000, help="max DE iterations", metavar='')
     cmd_parser.set_defaults(local_buckling=True, global_buckling=True)
     args = cmd_parser.parse_args()
 
@@ -457,7 +463,8 @@ if __name__ == '__main__':
             mutation=args.mutation,
             recombination=args.recombination,
             material=material_map[args.material],
-            population_per_rank=args.population_per_rank)
+            population_per_rank=args.population_per_rank,
+            maxiter=args.max_iter)
 
     # opt.optimize_scipy()
     opt.optimize_mine()
