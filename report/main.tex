@@ -2,41 +2,57 @@
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{commath}
+\usepackage{biblatex}
+\usepackage{algorithm2e}
+\usepackage{hyperref}
+\addbibresource{/home/gavin/Documents/library.bib}
+
 \author{Gavin Ridley}
 \date{\today}
-\title{4.450 Project Report\\ A Realistic, Open-source Frame Optimization Tool: Frame3DD-Opt}
+\title{4.450 Project Report\\ Exploration of Nonideality-Induced Deviations from Michell Truss Shapes using Parallel Differential Evolution}
 
 \begin{document}
 
 \section{Abstract}
-While a multitude of open-source truss and frame analysis tools can be found online,
-the majority of these focus on topology optimization. I designed a new truss optimization
-program capable of performing parallel differential evolution on the largest of supercomputers.
-The code uses the validated Frame3DD frame analysis to solve the solid mechanics physics.
-A new simple technique for treating a global buckling constraint has been developed, and has
-been incorporated into the new code. Results are presented for a handful of problems, and
-scaling analysis was performed up to XXX cores on the Sawtooth supercomputer based at
-Idaho National Laboratory.
+Discrete volume-optimal truss shapes under a given truss topology have been explored by
+several studies, but these tend to restrict analysis to not consider effects such
+as local and global buckling in accord with Michell's original analyses.
+Because volume-optimized truss shapes under consideration of
+buckling depend on both material properties and member geometry, these nonideal cases have
+not been explored in the literature. In this work, the truss shape optimization
+problem on a given topology is solved for both the idealized case and buckling-constrained case
+using an MPI-parallelized implementation of constrained differential evolution using
+the open-source Frame3DD code as the physics backend of the optimization. Comparisons
+are drawn between each geometry. Source code is available at \url{https://github.com/gridley/Frame3DD-Opt}.
 
 \section{Introduction}
-The shape of optimal truss structures under academic assumptions is known for a given
-topology in both 2D \cite{} and 3D \cite{}. These results, though, rely on a few assumptions
+
+The shape of optimal truss structures under various simplifying assumptions and simple loading patterns
+is known for a given topology in both 2D \cite{pragerNoteDiscretizedMichell1974,mazurekGeometricalAspectsOptimum2011} and 3D \cite{jacotStrainTensorMethod2016}.
+These geometries are closely related to Michell's continuous optimum truss solution \cite{michellLimitsEconomyMaterial1904}.
+These results, though, rely on a few assumptions
 which tend not to hold in real applications. To name a few, these results neglect global
 buckling, and penalize tensile stresses in the same way compressive stresses are penalized.
 While these optimal structures indeed solve the minimum compliance problem under a given
 topology, they do not necessarily solve the minimum mass problem once buckling constraints
 are taken into account--including both local and global buckling.
 
-This work seeks to fill this gap and explore the deviations from theoretically optimal geometry
-of Michell trusses using a realistic model of truss physics--including both local and global
-buckling. This deviation from idealized optimal solutions is easily shown to depend on both
-member geometries and mechanical properties. On top of this, these theoretically optimal
-solutions tend to assume pinned connections which do not resist moments, but real structures
-tend to use connections which do resist moments such as welds and gusset plates.
+While a multitude of open-source truss and frame analysis tools can be found online,
+the majority of these focus on topology optimization. I designed a new truss optimization
+program capable of performing parallel differential evolution on the largest of supercomputers.
+The code uses the validated Frame3DD frame analysis code \cite{gavinUserManualReference}
+to solve the solid mechanics physics. Frame3DD can do truss analysis calculations with linear elasticity,
+or nonlinear elasticity making consideration of the geometric stiffness matrix. The code calculates whether
+a structure buckles under loading by outputting a specific error code when the stiffness
+matrix loses the positive-definite property, which indicates that a buckling instability has been reached
+given the current load. The code can also model the shear of truss members, but I left that
+option off for the analyses presented here. Notably, frame joints are treated as rigid rather than
+pinned and thus resist moments, which is different from the typical academic assumption on
+trusses of non-moment-resistsing joints. Notably, by taking the approach of checking the stiffness
+matrix for semidefiniteness, local buckling is automatically considered in addition to global
+buckling since both effects lead to a loss of semi-definiteness. For more information on
+elastic stability, the monograph \cite{timoshenkoTheoryElasticStability2009} is recommended.
 
-So, to expound the physical model of trusses I seek to solve, 
-
-\subsection{Literature Review}
 Frames or trusses have a tendency to fail in buckling well before ideal
 tensile or compressive yield limits are reached--analogous to how a beam
 under compression tends to fail in buckling well before it fails due to
@@ -46,13 +62,160 @@ comparing this buckling stress to that where yielding occurs. For most
 geometries relevant to structural members, buckling happens well before
 yielding.
 
-A majority of modern truss and frame optimization studies consider the topology
-optimization problem introduced by \cite{}, which uses the "gound structure" concept.
-At its core, this method simply optimizes a highly connected trusses' member thicknesses
-in order to find an optimal truss layout.
+Multiple prior works have considered optimization of truss structures under both local
+and global buckling constraints. Early work on the handling of local buckling constraints
+in truss optimization was explored in the two-part study \cite{zhouDCOCOptimalityCriteria1992}.
+It was soon realized by the same authors that consideration of only local buckling is a
+fundamentally flawed and incorrect approach for truss optimization in the works \cite{zhouDifficultiesTrussTopology1996,rozvanyDifficultiesTrussTopology1996}.
+The aforementioned work \cite{zhouDifficultiesTrussTopology1996} is an especially recommended
+read due to its brevity and presentation of specific, incisive examples which clearly undermine the
+credibility of any truss optimization which only considers local buckling.
 
-\cite{zhaoa} first incisively pointed out the deficiencies of considering only
-local buckling in truss optimization problems. This paper points out a few simple
-examples where consideration of only local truss buckling 
+To address this, many studies have explored both shape and topology optimization
+of trusses under both global and local buckling constraints.
+The studies examining buckling-constrained topology optimization, presenting their
+own specialized methods, include the member sizing optimization of \cite{ben-talOptimalDesignTrusses2000}
+which could easily be applied to a ground structure, as well as \cite{kocvaraModellingSolvingTruss2002}
+which solved solved several truss topology optimization problems under a
+global stability constraint.
+
+This study does not employ topology optimization by reason of practical considerations.
+True, leaving the truss topology severely artificially contracts the design space in which solutions should be found.
+While this it is indeed restrictive to specify a topology in advance, the motivation
+of this work is aimed towards simply constructible designs as could be done with
+lumber from a home improvement store in a backyard. A topology-optimized truss
+will usually have a multitude of nodes tangled by members of a variety of thicknesses,
+e.g. the results presented in \cite{bendsoeTopologyDesignTruss2004}. In contrast, the geometric complexity
+of a \textit{shape-optimized} truss remains approximately constant so long as the topology is
+fixed, even if the connecting joint positions have been moved. As such, these structures
+remain constructible for small-scale projects.
+
+Multiple other works have optimized trusses using the node movement approach.
+\cite{wangTrussShapeOptimization2002} also used evolutionary optimization to modify the
+nodal positions of a truss as in this work, but without consideration of buckling.
+In constrast to the work \cite{wangTrussShapeOptimization2002}, checks that a local
+optimum is indeed obtained after the program terminates via evaluation of the Karush-Kuhn-Tucker condition
+is not made, although this could be explored in the future.
+
+Being an evolutionary algorithm, this approach would straightforwardly fit into
+the interactive evolutionary interface specification developed in chapter three of \cite{muellerComputationalExplorationStructural2014}.
+
+In this regard, the work \cite{pedersenOptimizationPracticalTrusses2003} also particularly focuses
+on practicalities, employing an optimization of frame node positions under physically realistic
+constraints including  displacement, stress, characteristic frequencies, and buckling.
+The work \cite{pedersenOptimizationPracticalTrusses2003} is likely the study published
+thus far most related to this one. While this study does not study constraints on displacement
+or vibrational modes, it seeks to further the work of \cite{pedersenOptimizationPracticalTrusses2003}
+by exploring the influence of practical constraints on geometries considered to be optimal
+in simplified truss physics models.
+
+The analysis method differs from the work \cite{pedersenOptimizationPracticalTrusses2003} in
+a few ways though. Firstly, as previously mentioned, no constraints are placed on the characteristic
+frequencies of the truss, nor is any consideration made regarding displacements. Only
+phenomena which would physically destroy the structure--yielding or buckling--are considered.
+Morever, while the study \cite{pedersenOptimizationPracticalTrusses2003} used Danish standard
+methods for accounting for engineering uncertainty via safety factor techniques applied to
+the elasticity modulus and some other parameters, our analysis simply employs an arbitrary
+safety factor applied to either the yield stress, local buckling stress, or global buckling
+load.
+
+\section{Methods}
+
+An implementation of the differential evolution algorithm as originally presented by \cite{stornDifferentialEvolutionSimple1997}
+has been implemented in Python. As noted in the work \cite{stornDifferentialEvolutionSimple1997}, differential evolution
+easily parallelizes, and this has been done via the Message Passing Interface (MPI) \cite{groppUsingMPI2nd1999} bindings
+for Python \cite{dalcinParallelDistributedComputing2011}. The outer optimization loop, written in an interpreted scripting
+language, wraps a low-level, optimized frame physics solver called Frame3DD, which is available under the GNU license \cite{gavinUserManualReference}.
+Because the truss physics is the computationally intensive part of the algorithm, Frame3DD was recompiled using the \texttt{-Ofast}
+flag in \texttt{gcc} \cite{stallmanUsingGnuCompiler2009} which does not guarantee standard floating point behavior, but
+gives enormous code performance. Solutions obtained with and without this compiler flag were verified to agree. The script
+has been named \texttt{Frame3DD-Opt}, and can be found at \url{https://github.com/gridley/Frame3DD-Opt}.
+
+This code has been written to operate in three modes--the first being a linear elasticity problem only without consideration
+of buckling as commonly employed in \cite{muellerComputationalExplorationStructural2014} and the MIT course 4.450, and
+the second making consideration of local buckling. The third also considers a global buckling constraint.
+These three modes are summarized by Table \ref{tab:modes}.
+In all modes, only the node positions are the variables
+to optimize on, rather than having member thickness as an additional variable as in \cite{pedersenOptimizationPracticalTrusses2003}.
+This choice was made in order to reduce the dimensionality of the problem.
+
+\begin{table}
+  \caption{Available modes in Frame3DD-Opt}
+  \centering
+  \begin{tabular}{c|c}
+    Mode & Functionality \\
+    \hline
+    1 & No buckling, minimizes $\sum_i |F_i| L_i$ \\
+    2 & Local buckling, minimizes frame mass \\
+    3 & Local and global buckling, minimizes frame mass \\
+  \end{tabular}
+\end{table}
+
+For the mode not considering buckling, the frame solution is essentially just a statics solver, so the member
+thicknesses negligibly affect the solution. Joints do resist moments in Frame3DD though, so this statement is
+only approximately true. In this mode, the quantity $\sum_i |F_i| L_i$ is the objective variable, which
+is known to be equivalent to minimizing frame mass under simple assumptions which neglect buckling \cite{muellerComputationalExplorationStructural2014}.
+
+In the second mode, local buckling is accounted for via the Euler buckling formula. In this code, since the
+joints resist moments, I have verified that the buckling effect is well-predicted as the case where each end
+of the member is clamped against both rotation and translational movement. To review this formula which can
+be found in \cite{gereMechanicsMaterials1996}, the buckling stress is simply:
+
+\begin{equation}
+  \sigma = \frac{\pi^2 E I}{(K L)^2}
+\end{equation}
+
+$E$ is the modulus of elasticity, $I$ the minimal area moment of inertia perpendicular to the loading axis,
+and $L$ the member length.
+Theoretically, given the previously mentioned conditions, $K$ should be taken to be 0.5. However, for design
+purposes, this is instead commonly taken to be 0.65 to account for defects in materials and other engineering
+uncertainties. The same convention is adopted here.
+
+Given a set of truss node coordinates, to evaluate the objective function in one of the latter two
+nodes, a linear elasticity calculation is first performed using large member thicknesses. After this,
+the members are sized using a safety factor applied to either the tensile yield stress limit or
+the same safety factor and the Euler buckling formula for respectively tensioned and compressed members.
+After sizing the members using a linear elasticity approach, in mode two, the frame mass is calculated
+and this is returned as the objective function. In mode three, an additional nonlinear elasticity calculation
+is performed. If the nonlinear stiffness matrix is not positive definite, the design is marked as infeasible
+since it will buckle either locally or globally. If the nonlinear stiffness matrix is positive definite,
+the design is feasible and the mass of the frame is calculated and this is returned as the objective
+function value. For visualization of this procedure, see Algorithms \ref{alg:1}, \ref{alg:2}, \ref{alg:3}
+which respectively cover the objective function for each mode.
+
+\begin{algorithm}
+  \caption{Mode 1 objective function calculation}
+\end{algorithm}
+
+\begin{algorithm}
+  \caption{Mode 2 objective function calculation}
+\end{algorithm}
+
+\begin{algorithm}
+  \caption{Mode 3 objective function calculation}
+\end{algorithm}
+
+Sizing members to be resistant against local buckling requires knowledge of the moment of area
+of a given member. However, the area of the member is dependent on the result of the linear
+elasticity calculation. As such, some invariant geometric factors must additionally be
+fixed in order to make the problem well-defined. The code currently has formulas built
+in for either circular or square tubes. For the former, the ratio of inner to outer radius
+is taken to be fixed and is a user-controlled parameter. For the latter, the ratio of the
+wall thickness to the width of the member is fixed as well. The formulas for the moments
+of area as a function of area are then calculation by: TODO.
+
+The population size in differential evolution should scale with the number of
+variables, if possible. The rule of thumb proposed by \cite{piotrowskiReviewDifferentialEvolution2017}
+
+\section{Conclusions}
+Future work
+\begin{itemize}
+  \item Checking of KKT conditions after run
+  \item "Polishing" of solution via gradient-based method after termination of differential evolution
+  \item Multiple loading conditions
+  \item Other differential evolution selection rules
+\end{itemize}
+
+\printbibliography
 
 \end{document}
