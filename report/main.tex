@@ -1,17 +1,24 @@
-\documentclass{report}
+\documentclass{article}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{commath}
 \usepackage{biblatex}
+\usepackage{amsfonts}
 \usepackage{algorithm2e}
 \usepackage{hyperref}
 \addbibresource{/home/gavin/Documents/library.bib}
 
 \author{Gavin Ridley}
 \date{\today}
-\title{4.450 Project Report\\ Exploration of Nonideality-Induced Deviations from Michell Truss Shapes using Parallel Differential Evolution}
+\title{4.450 Project Report\\ Exploration of Deviations from FL-Optimized Truss Shapes Under Buckling Constraints}
 
 \begin{document}
+\maketitle
+
+NOTE: I need a better title. When I say FL-optimized, I mean optimization of the summed force magnitudes times lengths.
+Also, another note: I have tested my code for the FL-optimization, but tested optimization with areas of members in compression
+calculated by Euler buckling. I have most of the formulas added now though, and don't expect this to be hard. I have tested parallelization
+of my code and found it to work successfully.
 
 \section{Abstract}
 Discrete volume-optimal truss shapes under a given truss topology have been explored by
@@ -35,7 +42,10 @@ which tend not to hold in real applications. To name a few, these results neglec
 buckling, and penalize tensile stresses in the same way compressive stresses are penalized.
 While these optimal structures indeed solve the minimum compliance problem under a given
 topology, they do not necessarily solve the minimum mass problem once buckling constraints
-are taken into account--including both local and global buckling.
+are taken into account--including both local and global buckling. The main contribution
+of this paper is to depict how discrete optimal truss geometries change depending on material properties
+when under realistic buckling constraints, with particular attention paid to perturbation
+of discrete Michell truss geometries under these constraints for the mass minimization problem.
 
 While a multitude of open-source truss and frame analysis tools can be found online,
 the majority of these focus on topology optimization. I designed a new truss optimization
@@ -90,6 +100,8 @@ of a \textit{shape-optimized} truss remains approximately constant so long as th
 fixed, even if the connecting joint positions have been moved. As such, these structures
 remain constructible for small-scale projects.
 
+TODO get graphic of complicated, clearly unconstructible topology optimization result
+
 Multiple other works have optimized trusses using the node movement approach.
 \cite{wangTrussShapeOptimization2002} also used evolutionary optimization to modify the
 nodal positions of a truss as in this work, but without consideration of buckling.
@@ -141,13 +153,14 @@ This choice was made in order to reduce the dimensionality of the problem.
 
 \begin{table}
   \caption{Available modes in Frame3DD-Opt}
+  \label{tab:modes}
   \centering
-  \begin{tabular}{c|c}
-    Mode & Functionality \\
+  \begin{tabular}{c|c|c}
+    Mode & Functionality & Formal Definition \\
     \hline
-    1 & No buckling, minimizes $\sum_i |F_i| L_i$ \\
-    2 & Local buckling, minimizes frame mass \\
-    3 & Local and global buckling, minimizes frame mass \\
+    1 & No buckling, minimizes $\sum_i |F_i| L_i$ & Eq. \ref{eq:mode1} \\
+    2 & Local buckling, minimizes frame mass & Eq. \ref{eq:mode2} \\
+    3 & Local and global buckling, minimizes frame mass & Eq. \ref{eq:mode3} \\
   \end{tabular}
 \end{table}
 
@@ -180,20 +193,65 @@ and this is returned as the objective function. In mode three, an additional non
 is performed. If the nonlinear stiffness matrix is not positive definite, the design is marked as infeasible
 since it will buckle either locally or globally. If the nonlinear stiffness matrix is positive definite,
 the design is feasible and the mass of the frame is calculated and this is returned as the objective
-function value. For visualization of this procedure, see Algorithms \ref{alg:1}, \ref{alg:2}, \ref{alg:3}
-which respectively cover the objective function for each mode.
+function value.
 
-\begin{algorithm}
-  \caption{Mode 1 objective function calculation}
-\end{algorithm}
+To formally state each of the aforementioned modes' optimization problems, the mode one optimization solves:
+\begin{align}
+\begin{split}
+  & \min_{p\in B} \sum_{i=1}^m L_i(p) |F_i(p)| \\
+  \text{s.t.} \quad & K(p) u = f \\
+\end{split}
+\label{eq:mode1}
+\end{align}
+$m$ denotes the number of bars in the frame, and $n$ the number of nodes.
+Where $B \subset \mathbb{R}^n$, represents the locations where truss nodes may be located. $p$ is a length $n$ vector of the unknown
+node variables in a Cartesian product of closed intervals of the real line, as the code is currently set up.
+Of course, more exotic search regions could be implemented to describe $B$ with some effort. $K(p)$ is
+the stiffness matrix calculated by Frame3DD, and $u$ is the resulting displacement vector from Frame3DD's
+linear solve with the nodal loading vector $f$. The forces in each member $F_i(p)$ are obtained from
+Frame3DD output, with negative values denoting member compressions and positive tensions.
+The $L_i$ are the lengths of each member.
+We know from \cite{muellerComputationalExplorationStructural2014} that if the above
+objective function is minimized, the mass of the structure is minimized as well.
 
-\begin{algorithm}
-  \caption{Mode 2 objective function calculation}
-\end{algorithm}
+For the second mode, indeed, the mass of the structure should be minimized. However, it
+is no longer true that minimizing the sum of the absolute values of forces times member lengths
+minimizes the truss mass. Instead, because local buckling puts differing sizing critera for
+compressive stresses and tensile stresses, a different quantity must be minimized:
+\begin{align}
+\begin{split}
+  & \min_{p\in B} \sum_{i=1}^m L_i(p) A_i \\
+  \text{s.t.} \quad & K(p) u = f \\
+                    & A_i = \begin{cases} \gamma F_i / \sigma_y & F_i  \geq 0 \\
+                      \max\left(I^{-1}\left(\frac{|F_i| (0.65 L_i)^2 \gamma}{\pi^2 E}\right), \frac{\gamma|F_i|}{\sigma_y}\right) & F_i < 0
+                    \end{cases}
+\end{split}
+\label{eq:mode2}
+\end{align}
 
-\begin{algorithm}
-  \caption{Mode 3 objective function calculation}
-\end{algorithm}
+Where $\sigma_y$ is the yield stress of the material under consideration, $A_i$ the area of
+member $i$, $\gamma$ is a user-defined safety factor, and $I^{-1} : \mathbb{R} \rightarrow \mathbb{R}$
+is a function which maps minimal member moments of area in the member-perpendicular plane to member areas.
+This map is only uniquely defined under a restriction of the geometric properties of a member, e.g. a few aspect ratios.
+$E$ is the elasticity modulus of the material under consideration.
+
+Lastly, in the third mode, geometric stiffness effects are accounted for in the calculation,
+and a constraint is placed on the problem that the nonlinear stiffness matrix be positive
+definite:
+\begin{align}
+\begin{split}
+  & \min_{p\in B} \sum_{i=1}^m L_i(p) A_i \\
+  \text{s.t.} \quad & \left(K(p)-G(p,u)\right) u = f \\
+                    & A_i = \begin{cases} \gamma F_i / \sigma_y & F_i  \geq 0 \\
+                      \max\left(I^{-1}\left(\frac{|F_i| (0.65 L_i)^2 \gamma}{\pi^2 E}\right), \frac{\gamma|F_i|}{\sigma_y}\right) & F_i < 0
+                    \end{cases} \\
+                    & A(p) - G(p,u) \succ 0 \\
+\end{split}
+\label{eq:mode3}
+\end{align}
+Where $G$ is the geometric stiffness matrix, which is updated by Frame3DD's nonlinear solver.
+If the matrix $K-G$ gains any nonpositive eigenvalue, Frame3DD returns a specific error code,
+which is processed by my wrapper program to reject the proposed solution as infeasible.
 
 Sizing members to be resistant against local buckling requires knowledge of the moment of area
 of a given member. However, the area of the member is dependent on the result of the linear
@@ -202,12 +260,69 @@ fixed in order to make the problem well-defined. The code currently has formulas
 in for either circular or square tubes. For the former, the ratio of inner to outer radius
 is taken to be fixed and is a user-controlled parameter. For the latter, the ratio of the
 wall thickness to the width of the member is fixed as well. The formulas for the moments
-of area as a function of area are then calculation by: TODO.
+of area as a function of area are then calculated by: TODO I have coded these but not typeset
+them.
+
+TODO: describe parallelism methodology
+
+TODO: Flowchart for Mode 1, 2, 3 calculations
 
 The population size in differential evolution should scale with the number of
 variables, if possible. The rule of thumb proposed by \cite{piotrowskiReviewDifferentialEvolution2017}
 
+Other things
+\begin{itemize}
+  \item Neglect gravity loading
+  \item orientation of square tubes aligned with Cartesian axes
+  \item Buckling model is not linear--true nonlinear buckling
+\end{itemize}
+
+\section{Results}
+
+\subsection{Bridge-like Truss with Vertically Moved Nodes}
+TODO: This is the HW4 problem. I have tested my solver on it, and found
+reasonable results, but am yet to check the influence of accounting
+for buckling.
+
+\subsection{Bridge-like Truss With Free Nodes}
+TODO: Same as the previous section, but let the nodes move horizontally
+as well. I have done this calculation too, and it can be found
+in the github repository.
+
+\subsection{Discrete 2D Michell Truss}
+In this section, I'll check that my solver can converge to that
+first diagram in Mazurek's paper. This problem has nearly 100 dimensions,
+and I will use the parallelized version of my solver here. I have
+access to the Sawtooth supercomputer at Idaho National Lab (and am experienced
+on it), and plan to run the optimization there using a population of around
+500 as per a rule of thumb in a paper I will cite. I will show a convergence plot of the calculation
+over each evolution.
+
+After that, this is where showing the results where Euler buckling
+has been accounted for will be really interesting. I think the structure
+will lose its symmetry about the axis dividing its supports. I will then
+check if the obtained design is subject to any global buckling failure,
+and if so, add that constraint and re-run my solver. Otherwise, I will not
+consider global buckling.
+
+\subsection{A 3D Example}
+
+Not fully sure which case to use here (open to recommended example
+problems from the literature, but I can't find full specs for connectivities,
+e.g. the examples from \cite{pedersenOptimizationPracticalTrusses2003}). My current plan is to study
+a 3D cantilever which looks like the previous Michell truss, but
+extruded to 3D in a few layers. This will be an absolutely ginormous
+optimization problem for a black-box approach like differential evolution, and
+the parallelization of my tool will be critical here.
+
+I have tested scaling of my tool already, and am confident it will work for
+this problem. I plan to extrude the truss into three layers, and connectivity
+between layers will be a triangulation. It is hard to explain how this
+will look, so you'll have to wait for the figures.
+
 \section{Conclusions}
+Code works, good results found, ran big parallel problem
+
 Future work
 \begin{itemize}
   \item Checking of KKT conditions after run
