@@ -112,6 +112,19 @@ class Frame3DDOutput:
             total_volume += member_length * member[2]
         return total_volume
 
+    def member_length(self, i):
+        '''
+        Calculates the length of the i_th member
+        '''
+        member = self.frame_element_data[i]
+        node1 = member[0] - 1 # convert to one-based indexing
+        node2 = member[1] - 1
+        member_length = 0
+        for j in range(3):
+            member_length += (self.node_data[node1][j]-self.node_data[node2][j])**2
+        member_length = member_length**0.5
+        return member_length
+
     def calculate_f_times_l(self):
         ''' Calculates the common objective sum_i |F_i| L_i, which is directly related
         to the total mass of the truss as shown in MIT 4.450, or simple algebra. this assumes
@@ -218,8 +231,18 @@ class UniformPerturbationSampler:
 class A36Steel:
     E = 29000 # elastic modulus (ksi)
     G = 11500 # shear modulus (ksi)
-    yield_stress = 36.3 # ksi (typically 0.2% elongation)
-    density = 7.33e-7 # ksi/in
+    tensile_yield_stress = 36.3 # ksi (typically 0.2% elongation)
+    compressive_yield_stress = 22 # ksi (typically 0.2% elongation)
+    density = 2.8e-4 # ksi/in
+    expansion = 0 # not touching this for now
+
+# A few material classes. Units are kips/inches (yikes)
+class DouglasFir:
+    E = 12400 # elastic modulus (ksi)
+    G = 4600 # shear modulus (ksi)
+    tensile_yield_stress = 5 # ksi (typically 0.2% elongation)
+    compressive_yield_stress = 3.94 # ksi (typically 0.2% elongation)
+    density = 2.2e-5 # ksi/in
     expansion = 0 # not touching this for now
 
 class OptimizationProblem:
@@ -240,7 +263,7 @@ class OptimizationProblem:
     be named {{ geom }}, and appears as the second entry after the frame element
     specifications.
     '''
-    def __init__(self, template_file_name, connectivity_file, variable_file, safety_factor=5, population_per_rank=15, maxiter=1000,
+    def __init__(self, template_file_name, connectivity_file, variable_file, safety_factor=2, population_per_rank=15, maxiter=1000,
             mutation=0.5, recombination=0.7, consider_local_buckling=True, consider_global_buckling=False, material=A36Steel):
 
         # Load the Jinja2 template data
@@ -250,6 +273,7 @@ class OptimizationProblem:
         # Load node-to-node connectivities
         self.connectivities = np.loadtxt(connectivity_file, dtype=np.int32)
         self.n_members = self.connectivities.shape[0]
+        self.member_thicknesses = np.zeros(self.n_members)
         if self.connectivities.shape[1] != 2:
             raise Exception('connectivities should be two entries per line')
 
@@ -277,6 +301,16 @@ class OptimizationProblem:
         self.mutation = 0.5
         self.recombination = 0.7
         self.material = material
+        self.consider_local_buckling = consider_local_buckling
+
+        if not consider_local_buckling and not consider_global_buckling:
+            self.evaluate_objective = self.evaluate_objective_force_times_length
+        elif not consider_global_buckling:
+            self.evaluate_objective = self.evaluate_objective_local_buckling
+        elif consider_global_buckling:
+            raise NotImplementedError('Have not added global buckling optimizations yet.')
+        else:
+            raise Exception('wtf??')
 
         # Allocate space for both previous iteration active populations
         # and last iteration active populations.
@@ -287,8 +321,6 @@ class OptimizationProblem:
         self.cost_function = np.ones(self.population_size) * 1e100
 
         # Check that either the author or user of this code isn't insane
-        if consider_local_buckling:
-            raise NotImplementedError
         if consider_global_buckling:
             raise NotImplementedError
         if not consider_local_buckling and consider_global_buckling:
@@ -301,7 +333,56 @@ class OptimizationProblem:
         # Get path for each proc to use
         self.path = os.getenv('PATH')
 
-    def evaluate_objective(self, variable_values):
+    def evaluate_objective_force_times_length(self, variable_values):
+        '''
+        Does a linear elasticity calculation, using large member thicknesses
+        in order to calculate the sums of magnitudes of member forces times
+        their lengths, which is proportional to frame mass under some simple
+        assumptions.
+        '''
+        # Do elastic frame calculation to calculate member sizes
+        inputname = 'input_%i.3dd'%self.rank
+        outputname = 'output_%i.out'%self.rank
+        member_string = '%i\n'%self.n_members
+        for member_id in range(self.connectivities.shape[0]):
+            member_string += '%i %i %i 1000.0 1.0 1.0 1.0 1.0 2 %f %f 0 %f\n'%(member_id+1, self.connectivities[member_id, 0],
+                    self.connectivities[member_id, 1], self.material.E, self.material.G, self.material.density)
+        with open(inputname, 'w') as fh:
+            fh.write(self.template.render(members=member_string, nmodes=0, **dict(zip(self.variable_names, variable_values))))
+
+        the_env = {'PATH':self.path, 'FRAME3DD_OUTDIR':'out%i'%self.rank}
+        result = subprocess.run(['frame3dd', '-i', inputname, '-o', outputname, '-q'], env=the_env)
+
+        # Note: exit code 182 is given for large strains. For the linear elastic analysis, I just set beam thicknesses to an arb. number,
+        # so this is expected, and should not cause any difference in the solution.
+        if result.returncode and result.returncode!=182:
+            print("Frame3DD exited with error code %i on proc %i"%(result.returncode, self.rank))
+            MPI.COMM_WORLD.Abort()
+
+        # Read in results
+        elastic_result = Frame3DDOutput(outputname)
+
+        # First get an estimate on member sizes based on the yield stress
+        total_frame_volume = 0
+        for i in range(self.n_members):
+
+            # Calculate area of member based on yield stress approach
+            if elastic_result.frame_element_reactions[i][1] < 0:
+                member_area = abs(elastic_result.frame_element_reactions[i][1]) / self.material.compressive_yield_stress * self.safety_factor
+            else:
+                member_area = abs(elastic_result.frame_element_reactions[i][1]) / self.material.tensile_yield_stress * self.safety_factor
+            self.member_thicknesses[i] = member_area
+            total_frame_volume += elastic_result.member_length(i) * member_area
+
+        # Need to clean up the result, since Frame3DD just writes to make output files longer
+        removal_result = subprocess.run(['rm', outputname])
+        if removal_result.returncode:
+            print("Frame3DD screwed up in some undecipherable way on proc %i..."%self.rank)
+            MPI.COMM_WORLD.Abort()
+
+        return total_frame_volume
+
+    def evaluate_objective_local_buckling(self, variable_values):
         '''
         This proceeds in two steps. Firstly, a linear elasticity calculation is done in order to calculate the
         size of the members such that both local buckling, tensile yielding, and compressive yielding are all
@@ -331,13 +412,66 @@ class OptimizationProblem:
         # Read in results
         elastic_result = Frame3DDOutput(outputname)
 
+        total_frame_volume = 0
+
+        # First get an estimate on member sizes based on the yield stress
+        for i in range(self.n_members):
+
+            # Calculate area of member based on yield stress approach
+            if elastic_result.frame_element_reactions[i][1] > 0:
+                member_area = elastic_result.frame_element_reactions[i][1] / self.material.tensile_yield_stress * self.safety_factor
+
+            # If member is in compression, also do a buckling sizing:
+            else:
+                # First, size based off compressive yield stress
+                member_area = abs(elastic_result.frame_element_reactions[i][1]) / self.material.compressive_yield_stress * self.safety_factor
+
+                buckling_I = abs(elastic_result.frame_element_reactions[i][1]) * (0.65 * elastic_result.member_length(i))**2 * self.safety_factor / np.pi**2 / self.material.E
+
+                # Now, given the minimum acceptable moment of area, the member area is calculated from that
+                # under whatever geometric constraints have been placed on it. Hardcoded for circular tubes
+                # of a certain aspect ratio for now.
+                alpha = 0.9
+                A = np.sqrt(4 * buckling_I * np.pi * (1-alpha**2)**2 / (1-alpha**4))
+                if A > member_area:
+                    member_area = A
+
+            self.member_thicknesses[i] = member_area
+            total_frame_volume += elastic_result.member_length(i) * member_area
+
         # Need to clean up the result, since Frame3DD just writes to make output files longer
         removal_result = subprocess.run(['rm', outputname])
         if removal_result.returncode:
             print("Frame3DD screwed up in some undecipherable way on proc %i..."%self.rank)
             MPI.COMM_WORLD.Abort()
 
-        return elastic_result.calculate_f_times_l()
+        return total_frame_volume
+
+    def write_input_with_sized_members(self, variable_values):
+        '''
+        Using the stored member areas from a linear elasticity calculation (self.member_thicknesses),
+        this method writes a Frame3DD input file that uses those areas rather than a large arbitrary
+        area. This input file is then recommended for use to check whether global buckling is taking
+        place by turning on the geometric stiffness option and checking that the stiffness matrix
+        remains positive definite.
+        '''
+        # Do elastic frame calculation to calculate member sizes
+        inputname = 'input_%i.3dd'%self.rank
+        outputname = 'output_%i.out'%self.rank
+        member_string = '%i\n'%self.n_members
+        for member_id in range(self.connectivities.shape[0]):
+            area = self.member_thicknesses[member_id]
+            geom = RoundTube(area, 0.9)
+            member_string += '%i %i %i %f %f %f %f %f %f %f %f 0 %f\n'%(member_id+1, self.connectivities[member_id, 0],
+                    self.connectivities[member_id, 1],area,
+                    geom.get_Asy(),
+                    geom.get_Asz(),
+                    geom.get_Jxx(),
+                    geom.get_Iyy(),
+                    geom.get_Izz(),
+                    self.material.E, self.material.G, self.material.density)
+        with open(inputname, 'w') as fh:
+            fh.write(self.template.render(members=member_string, nmodes=0, **dict(zip(self.variable_names, variable_values))))
 
     def optimize_scipy(self):
         '''
@@ -378,15 +512,20 @@ class OptimizationProblem:
             if all([propose != a for a in args]):
                 return propose
 
-    def optimize_mine(self):
+    def optimize_mine(self, print_convergence_history=True):
         '''
-        Carries out differential evolution using my backend
+        Carries out differential evolution using my backend. Parallelized over MPI, with
+        a fixed amount of population on each MPI rank.
         '''
         self.generate_feasible_solution()
 
         evolution_iteration = 0
 
         trial = np.zeros(self.n_variables) # work space for generating trial mutation
+
+        if print_convergence_history and self.rank == 0:
+            convergence_file = open('convergence.txt', 'w')
+            convergence_file.write('# Iteration  Min objective  Max objective  Mean objective  St. Dev. objective\n')
 
         while evolution_iteration < self.maxiter:
 
@@ -420,8 +559,19 @@ class OptimizationProblem:
 
             if (self.rank == 0):
                 print("Iteration %i: f(x) = %f" % (evolution_iteration, np.min(self.cost_function)))
+                if print_convergence_history:
+                    convergence_file.write('%i %f %f %f %f\n'%(evolution_iteration, np.min(self.cost_function),
+                        np.max(self.cost_function), np.mean(self.cost_function), np.std(self.cost_function)))
 
             evolution_iteration += 1
+
+        # Make it so that the winning one definitely has output printed out showing its design
+        if self.rank == 0:
+            best_design = np.argmin(self.cost_function)
+            self.evaluate_objective(self.current_population[best_design, :])
+            self.write_input_with_sized_members(self.current_population[best_design, :])
+            if print_convergence_history:
+                convergence_file.close()
 
     def synchronize_population_across_ranks(self):
         '''
@@ -439,7 +589,7 @@ if __name__ == '__main__':
     # TODO add check that frame3dd is indeed present on the system.
 
     # When a new material class is added, put it in this dictionary to make it available on the command line
-    material_map = {'A36Steel': A36Steel}
+    material_map = {'A36Steel': A36Steel, 'DouglasFir': DouglasFir}
 
     cmd_parser = argparse.ArgumentParser(description='Frame3DD-Opt: Parallel differential evolution of frame designs')
     cmd_parser.add_argument('frame3dd_template', help="name of the Frame3DD input file template, formatted as per this program's manual")

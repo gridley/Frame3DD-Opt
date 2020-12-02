@@ -305,21 +305,6 @@ check if the obtained design is subject to any global buckling failure,
 and if so, add that constraint and re-run my solver. Otherwise, I will not
 consider global buckling.
 
-\subsection{A 3D Example}
-
-Not fully sure which case to use here (open to recommended example
-problems from the literature, but I can't find full specs for connectivities,
-e.g. the examples from \cite{pedersenOptimizationPracticalTrusses2003}). My current plan is to study
-a 3D cantilever which looks like the previous Michell truss, but
-extruded to 3D in a few layers. This will be an absolutely ginormous
-optimization problem for a black-box approach like differential evolution, and
-the parallelization of my tool will be critical here.
-
-I have tested scaling of my tool already, and am confident it will work for
-this problem. I plan to extrude the truss into three layers, and connectivity
-between layers will be a triangulation. It is hard to explain how this
-will look, so you'll have to wait for the figures.
-
 \section{Conclusions}
 Code works, good results found, ran big parallel problem
 
