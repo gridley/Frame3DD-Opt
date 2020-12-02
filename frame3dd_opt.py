@@ -532,6 +532,7 @@ class OptimizationProblem:
             # Parallel loop over population (only loop over chunk of population owned by this MPI rank)
             for p in range(self.rank * self.population_per_rank, (self.rank+1) * self.population_per_rank):
 
+                # Original Storn and Price method:
                 # Get partners
                 a = self.exclusive_sample(p)
                 b = self.exclusive_sample(p, a)
@@ -546,6 +547,24 @@ class OptimizationProblem:
                     else:
                         trial[j] = self.last_iteration_population[p][j]
                     j = (j+1)%self.n_variables
+                # ---------------------------------
+
+                # # Best1Bin
+                # # Get partners
+                # a = np.argmin(self.cost_function)
+                # b = self.exclusive_sample(p, a)
+                # c = self.exclusive_sample(p, a, b)
+
+                # # Mutate'n'mate
+                # j = random.randrange(0, self.n_variables)
+                # for k in range(self.n_variables):
+                #     if random.random() < self.recombination or k == self.n_variables-1:
+                #         trial[j] = self.last_iteration_population[a][j] + self.mutation * (
+                #                 self.last_iteration_population[b][j] - self.last_iteration_population[c][j])
+                #     else:
+                #         trial[j] = self.last_iteration_population[p][j]
+                #     j = (j+1)%self.n_variables
+                # ---------------------------------
 
                 score = self.evaluate_objective(trial)
                 if score <= self.cost_function[p]:
