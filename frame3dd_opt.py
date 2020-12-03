@@ -264,7 +264,7 @@ class OptimizationProblem:
     specifications.
     '''
     def __init__(self, template_file_name, connectivity_file, variable_file, safety_factor=2, population_per_rank=15, maxiter=1000,
-            mutation=0.5, recombination=0.7, consider_local_buckling=True, consider_global_buckling=False, material=A36Steel):
+            mutation=0.5, recombination=0.7, consider_local_buckling=True, consider_global_buckling=False, material=A36Steel, xmin=-1e8, xmax=1e8):
 
         # Load the Jinja2 template data
         with open(template_file_name, 'r') as template_fh:
@@ -289,6 +289,12 @@ class OptimizationProblem:
                 assert float(split_line[1]) < float(split_line[2])
                 self.constrained_boundaries.append((float(split_line[1]), float(split_line[2])))
         self.n_variables = len(self.variable_names)
+
+        # Bounding box on allowable node positions. These keep them
+        # from running off to infinity, which they do sometimes, annoyingly
+        # if a design can be found putting zero force on that member.
+        self.xmin = xmin
+        self.xmax = xmax
 
         # Save various settings
         self.rank = MPI.COMM_WORLD.Get_rank()
@@ -534,18 +540,22 @@ class OptimizationProblem:
 
                 # Original Storn and Price method:
                 # Get partners
-                a = self.exclusive_sample(p)
-                b = self.exclusive_sample(p, a)
-                c = self.exclusive_sample(p, a, b)
+                in_allowable_region = False
+                while not in_allowable_region:
+                    a = self.exclusive_sample(p)
+                    b = self.exclusive_sample(p, a)
+                    c = self.exclusive_sample(p, a, b)
 
-                j = random.randrange(0, self.n_variables)
-                for k in range(self.n_variables):
-                    if random.random() < self.recombination or k == self.n_variables-1:
-                        trial[j] = self.last_iteration_population[c][j] + self.mutation * (
-                                self.last_iteration_population[a][j] - self.last_iteration_population[b][j])
-                    else:
-                        trial[j] = self.last_iteration_population[p][j]
-                    j = (j+1)%self.n_variables
+                    j = random.randrange(0, self.n_variables)
+                    for k in range(self.n_variables):
+                        if random.random() < self.recombination or k == self.n_variables-1:
+                            trial[j] = self.last_iteration_population[c][j] + self.mutation * (
+                                    self.last_iteration_population[a][j] - self.last_iteration_population[b][j])
+                        else:
+                            trial[j] = self.last_iteration_population[p][j]
+                        j = (j+1)%self.n_variables
+                    if np.all(trial > self.xmin) and np.all(trial < self.xmax):
+                        in_allowable_region = True
                 # ---------------------------------
 
                 # # Best1Bin
@@ -589,6 +599,7 @@ class OptimizationProblem:
             self.write_input_with_sized_members(self.current_population[best_design, :])
             if print_convergence_history:
                 convergence_file.close()
+            np.savetxt('member_thicknesses', self.member_thicknesses)
 
     def synchronize_population_across_ranks(self):
         '''
@@ -620,6 +631,8 @@ if __name__ == '__main__':
     cmd_parser.add_argument('--material', default='A36Steel', help="material to use for frame members. available types:\n %s"%('    \n'.join(material_map.keys())), metavar='')
     cmd_parser.add_argument('--population_per_rank', type=int, default=15, help="differential evolution population size per MPI rank", metavar='')
     cmd_parser.add_argument('--max_iter', type=int, default=1000, help="max DE iterations", metavar='')
+    cmd_parser.add_argument('--xmin', type=float, default=-1e8, help="min coordinate", metavar='')
+    cmd_parser.add_argument('--xmax', type=float, default=1e8, help="max coordinate", metavar='')
     cmd_parser.set_defaults(local_buckling=True, global_buckling=True)
     args = cmd_parser.parse_args()
 
@@ -633,7 +646,9 @@ if __name__ == '__main__':
             recombination=args.recombination,
             material=material_map[args.material],
             population_per_rank=args.population_per_rank,
-            maxiter=args.max_iter)
+            maxiter=args.max_iter,
+            xmin=args.xmin,
+            xmax=args.xmax)
 
     # opt.optimize_scipy()
     opt.optimize_mine()
