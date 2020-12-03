@@ -538,7 +538,6 @@ class OptimizationProblem:
                 b = self.exclusive_sample(p, a)
                 c = self.exclusive_sample(p, a, b)
 
-                # Mutate'n'mate
                 j = random.randrange(0, self.n_variables)
                 for k in range(self.n_variables):
                     if random.random() < self.recombination or k == self.n_variables-1:
@@ -555,7 +554,6 @@ class OptimizationProblem:
                 # b = self.exclusive_sample(p, a)
                 # c = self.exclusive_sample(p, a, b)
 
-                # # Mutate'n'mate
                 # j = random.randrange(0, self.n_variables)
                 # for k in range(self.n_variables):
                 #     if random.random() < self.recombination or k == self.n_variables-1:
