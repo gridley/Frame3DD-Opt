@@ -599,8 +599,9 @@ class OptimizationProblem:
 
             # Now polish off the solution using a gradient-based method
             self.evaluate_objective(self.current_population[best_design, :])
-            print('polishing solution with Nelder-Mead...')
-            result = scipy.optimize.minimize(self.evaluate_objective, x0=self.current_population[best_design, :], method='Powell')
+            print('polishing solution with CG...')
+            result = scipy.optimize.minimize(self.evaluate_objective, x0=self.current_population[best_design, :], method='CG',
+                    options={'gtol': .01, 'norm': 2, 'eps': .01, 'maxiter': 20, 'disp': True, 'return_all': False, 'finite_diff_rel_step': None})
             print(result)
             self.write_input_with_sized_members(result.x)
             np.savetxt('member_thicknesses', self.member_thicknesses)
