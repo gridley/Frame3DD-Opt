@@ -595,10 +595,14 @@ class OptimizationProblem:
         # Make it so that the winning one definitely has output printed out showing its design
         if self.rank == 0:
             best_design = np.argmin(self.cost_function)
+
+
+            # Now polish off the solution using a gradient-based method
             self.evaluate_objective(self.current_population[best_design, :])
-            self.write_input_with_sized_members(self.current_population[best_design, :])
-            if print_convergence_history:
-                convergence_file.close()
+            print('polishing solution with Nelder-Mead...')
+            result = scipy.optimize.minimize(self.evaluate_objective, x0=self.current_population[best_design, :], method='Powell')
+            print(result)
+            self.write_input_with_sized_members(result.x)
             np.savetxt('member_thicknesses', self.member_thicknesses)
 
     def synchronize_population_across_ranks(self):
