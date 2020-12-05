@@ -1,0 +1,122 @@
+Michell truss topology
+
+# node data ...
+27				# number of nodes 
+#.node  x       y       z       r                 units: inches
+
+ 1	0.0	                  24	                0.0	0.0
+ 2	{{ x2 }}	    {{ y2 }}	                0.0	0.0
+ 3	{{ x3 }}	    {{ y3 }}	                0.0	0.0
+ 4	{{ x4 }}	    {{ y4 }}	                0.0	0.0
+ 5	{{ x5 }}	    {{ y5 }}	                0.0	0.0
+ 6	72	                  12	                0.0	0.0
+ 7	{{ x7 }}	    {{ y7 }}	                0.0	0.0
+ 8	{{ x8 }}	    {{ y8 }}	                0.0	0.0
+ 9	{{ x9 }}	    {{ y9 }}	                0.0	0.0
+ 10	{{ x10 }}	    {{ y10 }}	                0.0	0.0
+ 11	{{ x11 }}	    {{ y11 }}	                0.0	0.0
+ 12	{{ x12 }}	    {{ y12 }}	                0.0	0.0
+ 13	{{ x13 }}	    {{ y13 }}	                0.0	0.0
+ 14	{{ x14 }}	    {{ y14 }}	                0.0	0.0
+ 15	{{ x15 }}	    {{ y15 }}	                0.0	0.0
+ 16	{{ x16 }}	    {{ y16 }}	                0.0	0.0
+ 17	{{ x17 }}	    {{ y17 }}	                0.0	0.0
+ 18	{{ x18 }}	    {{ y18 }}	                0.0	0.0
+ 19	{{ x19 }}	    {{ y19 }}	                0.0	0.0
+ 20	{{ x20 }}	    {{ y20 }}	                0.0	0.0
+ 21	{{ x21 }}	    {{ y21 }}	                0.0	0.0
+ 22	{{ x22 }}	    {{ y22 }}	                0.0	0.0
+ 23	{{ x23 }}	    {{ y23 }}	                0.0	0.0
+ 24	{{ x24 }}	    {{ y24 }}	                0.0	0.0
+ 25	{{ x25 }}	    {{ y25 }}	                0.0	0.0
+ 26	{{ x26 }}	    {{ y26 }}	                0.0	0.0
+ 27	0               0	                        0.0	0.0
+
+
+# reaction data ...
+27				# number of nodes with reactions
+#.n     x y z xx yy zz		1=fixed, 0=free
+
+  1	1 1 1  1  1  0
+  2	0 0 1  1  1  0
+  3	0 0 1  1  1  0 
+  4	0 0 1  1  1  0
+  5	0 0 1  1  1  0
+  6	0 0 1  1  1  0
+  7	0 0 1  1  1  0
+  8	0 0 1  1  1  0
+  9	0 0 1  1  1  0
+ 10	0 0 1  1  1  0
+ 11	0 0 1  1  1  0
+ 12	0 0 1  1  1  0
+ 13	0 0 1  1  1  0
+ 14	0 0 1  1  1  0
+ 15	0 0 1  1  1  0
+ 16	0 0 1  1  1  0
+ 17	0 0 1  1  1  0
+ 18	0 0 1  1  1  0
+ 19	0 0 1  1  1  0
+ 20	0 0 1  1  1  0
+ 21	0 0 1  1  1  0
+ 22	0 0 1  1  1  0
+ 23	0 0 1  1  1  0
+ 24	0 0 1  1  1  0
+ 25	0 0 1  1  1  0
+ 26	0 0 1  1  1  0
+ 27	1 1 1  1  1  0
+
+# frame element data ...
+{{ members }}
+
+
+ 
+0		# 1: include shear deformation
+0		# 1: include geometric stiffness
+1.0 		# exaggerate mesh deformations
+1.0             # zoom scale for 3D plotting
+-1.0		# x-axis increment for internal forces
+		# if dx is -1 then internal force calculations are skipped.
+
+
+1				# number of static load cases
+				# Begin Static Load Case 1 of 2
+		
+# gravitational acceleration for self-weight loading (global)
+#.gX		gY		gZ		
+#.in./s^2	in./s^2		in./s^2
+  0  		0		0
+
+1				# number of loaded nodes
+#.n     Fx       Fy     Fz      Mxx     Myy     Mzz
+#.      kip      kip    kip     in.k    in.k    in.k
+ 6	0.0	-10 	    0.0	0.0	0.0	0.0
+
+0				# number of uniform loads
+0				# number of trapezoidal loads
+0				# number of internal concentrated loads
+0				# number of temperature loads
+
+0				# number of nodes with prescribed displacements
+#.n    Dx      Dy      Dz      Dxx     Dyy     Dzz
+#.     in      in      in      rad.    rad.    rad.
+				# End   Static Load Case 1 of 2
+
+				# Begin Static Load Case 2 of 2
+
+
+{{ nmodes }}				                # number of dynamic modes
+1                               # 1: subspace Jacobi     2: Stodola
+0                               # 0: consistent mass ... 1: lumped mass matrix
+1e-8                            # mode shape tolerance
+1.0                             # shift value ... for unrestrained structures
+1.0                            # exaggerate modal mesh deformations
+
+0                               # number of nodes with extra mass or inertia
+0				                # number of frame elements with extra mass
+0                               # number of modes to animate, nA
+0                               # don't pan during animation
+
+0    # Condensation Method:   0= none   1= static   2= Guyan   3= Dynamic
+0                               # number of condensed nodes
+
+# End of input data file for example A
